@@ -25,8 +25,63 @@
 
 #include <jni.h>
 #include <string.h>
+#include <windows.h>
+#include <winsock2.h>
+#include <WS2tcpip.h>
 
 #include "net_util.h"
+
+static void handleError(JNIEnv *env, jint rv, const char *errmsg) {
+    if (rv < 0) {
+        int error = WSAGetLastError();
+        if (error == WSAENOPROTOOPT) {
+            JNU_ThrowByName(env, "java/lang/UnsupportedOperationException",
+                    "unsupported socket option");
+        } else {
+            JNU_ThrowByNameWithLastError(env, "java/net/SocketException", errmsg);
+        }
+    }
+}
+
+static jint socketOptionSupported(jint level, jint optname) {
+    WSADATA wsaData;
+    jint error = WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+    if (error != 0) {
+        return 0;
+    }
+
+    SOCKET sock;
+    jint one = 1;
+    jint rv;
+    socklen_t sz = sizeof(one);
+
+    /* First try IPv6; fall back to IPv4. */
+    sock = socket(PF_INET6, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        error = WSAGetLastError();
+        if (error == WSAEPFNOSUPPORT || error == WSAEAFNOSUPPORT) {
+            sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+        }
+        if (sock == INVALID_SOCKET) {
+            return 0;
+        }
+    }
+
+    rv = getsockopt(sock, level, optname, (char*) &one, &sz);
+    error = WSAGetLastError();
+
+    if (rv != 0 && error == WSAENOPROTOOPT) {
+        rv = 0;
+    } else {
+        rv = 1;
+    }
+
+    closesocket(sock);
+    WSACleanup();
+
+    return rv;
+}
 
 /*
  * Class:     sun_net_ExtendedOptionsImpl
@@ -70,7 +125,8 @@ JNIEXPORT jboolean JNICALL Java_sun_net_ExtendedOptionsImpl_flowSupported
  */
 JNIEXPORT jboolean JNICALL Java_sun_net_ExtendedOptionsImpl_keepAliveOptionsSupported
 (JNIEnv *env, jobject unused) {
-    return JNI_FALSE;
+    return socketOptionSupported(IPPROTO_TCP, TCP_KEEPIDLE) && socketOptionSupported(IPPROTO_TCP, TCP_KEEPCNT)
+            && socketOptionSupported(IPPROTO_TCP, TCP_KEEPINTVL);
 }
 
 /*
@@ -80,8 +136,8 @@ JNIEXPORT jboolean JNICALL Java_sun_net_ExtendedOptionsImpl_keepAliveOptionsSupp
  */
 JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveProbes
 (JNIEnv *env, jobject unused, jobject fileDesc, jint optval) {
-    JNU_ThrowByName(env, "java/lang/UnsupportedOperationException",
-        "unsupported socket option");
+    jint rv = setsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPCNT, (char*) &optval, sizeof(optval));
+    handleError(env, rv, "set option TCP_KEEPCNT failed");
 }
 
 /*
@@ -91,8 +147,8 @@ JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveProbes
  */
 JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveTime
 (JNIEnv *env, jobject unused, jobject fileDesc, jint optval) {
-    JNU_ThrowByName(env, "java/lang/UnsupportedOperationException",
-        "unsupported socket option");
+    jint rv = setsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPIDLE, (char*) &optval, sizeof(optval));
+    handleError(env, rv, "set option TCP_KEEPIDLE failed");
 }
 
 /*
@@ -102,8 +158,8 @@ JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveTime
  */
 JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveIntvl
 (JNIEnv *env, jobject unused, jobject fileDesc, jint optval) {
-    JNU_ThrowByName(env, "java/lang/UnsupportedOperationException",
-        "unsupported socket option");
+    jint rv = setsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPINTVL, (char*) &optval, sizeof(optval));
+    handleError(env, rv, "set option TCP_KEEPINTVL failed");
 }
 
 /*
@@ -113,8 +169,11 @@ JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveIntvl
  */
 JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveProbes
 (JNIEnv *env, jobject unused, jobject fileDesc) {
-    JNU_ThrowByName(env, "java/lang/UnsupportedOperationException",
-        "unsupported socket option");
+    jint optval, rv;
+    socklen_t sz = sizeof(optval);
+    rv = getsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPCNT, (char*) &optval, &sz);
+    handleError(env, rv, "get option TCP_KEEPCNT failed");
+    return optval;
 }
 
 /*
@@ -124,8 +183,11 @@ JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveProbes
  */
 JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveTime
 (JNIEnv *env, jobject unused, jobject fileDesc) {
-    JNU_ThrowByName(env, "java/lang/UnsupportedOperationException",
-        "unsupported socket option");
+    jint optval, rv;
+    socklen_t sz = sizeof(optval);
+    rv = getsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPIDLE, (char*) &optval, &sz);
+    handleError(env, rv, "get option TCP_KEEPIDLE failed");
+    return optval;
 }
 
 /*
@@ -135,6 +197,9 @@ JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveTime
  */
 JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveIntvl
 (JNIEnv *env, jobject unused, jobject fileDesc) {
-    JNU_ThrowByName(env, "java/lang/UnsupportedOperationException",
-        "unsupported socket option");
+    jint optval, rv;
+    socklen_t sz = sizeof(optval);
+    rv = getsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPINTVL, (char*) &optval, &sz);
+    handleError(env, rv, "get option TCP_KEEPINTVL failed");
+    return optval;
 }
