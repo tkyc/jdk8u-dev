@@ -24,6 +24,9 @@
  */
 package java.net;
 
+import jdk.net.ExtendedSocketOptions;
+import sun.net.ExtendedOptionsImpl;
+
 import java.io.*;
 import java.security.PrivilegedAction;
 
@@ -172,12 +175,52 @@ class PlainSocketImpl extends AbstractPlainSocketImpl
         impl.connect(address, timeout);
     }
 
-    public void setOption(int opt, Object val) throws SocketException {
-        impl.setOption(opt, val);
+    protected <T> void setOption(SocketOption<T> name, T value) throws IOException {
+        if (name == ExtendedSocketOptions.TCP_KEEPIDLE) {
+            checkSetOption(name, value, Integer.class);
+            ExtendedOptionsImpl.setTcpKeepAliveTime(getFileDescriptor(), (Integer)value);
+        } else if (name == ExtendedSocketOptions.TCP_KEEPINTERVAL) {
+            checkSetOption(name, value, Integer.class);
+            ExtendedOptionsImpl.setTcpKeepAliveIntvl(getFileDescriptor(), (Integer)value);
+        } else if (name == ExtendedSocketOptions.TCP_KEEPCOUNT) {
+            checkSetOption(name, value, Integer.class);
+            ExtendedOptionsImpl.setTcpKeepAliveProbes(getFileDescriptor(), (Integer)value);
+        } else {
+            super.setOption(name, value);
+        }
     }
 
-    public Object getOption(int opt) throws SocketException {
-        return impl.getOption(opt);
+    protected <T> T getOption(SocketOption<T> name) throws IOException {
+        if (name == ExtendedSocketOptions.TCP_KEEPIDLE) {
+            checkGetOption(name);
+            int retVal = ExtendedOptionsImpl.getTcpKeepAliveTime(getFileDescriptor());
+            return (T)Integer.valueOf(retVal);
+        } else if (name == ExtendedSocketOptions.TCP_KEEPINTERVAL) {
+            checkGetOption(name);
+            int retVal = ExtendedOptionsImpl.getTcpKeepAliveIntvl(getFileDescriptor());
+            return (T)Integer.valueOf(retVal);
+        } else if (name == ExtendedSocketOptions.TCP_KEEPCOUNT) {
+            checkGetOption(name);
+            int retVal = ExtendedOptionsImpl.getTcpKeepAliveProbes(getFileDescriptor());
+            return (T)Integer.valueOf(retVal);
+        } else {
+            return super.getOption(name);
+        }
+    }
+
+    private <T> void checkSetOption(SocketOption<T> name, T value, Class<?> expected) throws IOException {
+        if (isClosedOrPending()) {
+            throw new SocketException("Socket closed");
+        }
+        ExtendedOptionsImpl.checkSetOptionPermission(name);
+        ExtendedOptionsImpl.checkValueType(value, expected);
+    }
+
+    private <T> void checkGetOption(SocketOption<T> name) throws IOException {
+        if (isClosedOrPending()) {
+            throw new SocketException("Socket closed");
+        }
+        ExtendedOptionsImpl.checkGetOptionPermission(name);
     }
 
     synchronized void doConnect(InetAddress address, int port, int timeout) throws IOException {
