@@ -30,6 +30,9 @@
 #include <WS2tcpip.h>
 
 #include "net_util.h"
+#include "jni_util.h"
+
+static jfieldID sf_fd_fdID;             /* FileDescriptor.fd */
 
 static void handleError(JNIEnv *env, jint rv, const char *errmsg) {
     if (rv < 0) {
@@ -89,8 +92,34 @@ static jint socketOptionSupported(jint level, jint optname) {
  * Signature: ()V
  */
 JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_init
-  (JNIEnv *env, jclass UNUSED)
-{
+  (JNIEnv *env, jclass UNUSED) {
+
+    static int initialized = 0;
+    jclass c;
+
+    /* Global class references */
+
+    if (initialized) {
+        return;
+    }
+
+    /* int "fd" field of java.io.FileDescriptor  */
+
+    c = (*env)->FindClass(env, "java/io/FileDescriptor");
+    CHECK_NULL(c);
+    sf_fd_fdID = (*env)->GetFieldID(env, c, "fd", "I");
+    CHECK_NULL(sf_fd_fdID);
+
+    initialized = JNI_TRUE;
+}
+
+/*
+ * Retrieve the int file-descriptor from a public socket type object.
+ * Gets impl, then the FileDescriptor from the impl, and then the fd
+ * from that.
+ */
+static int getFD(JNIEnv *env, jobject fileDesc) {
+    return (*env)->GetIntField(env, fileDesc, sf_fd_fdID);
 }
 
 /* Non Solaris. Functionality is not supported. So, throw UnsupportedOpExc */
@@ -136,7 +165,8 @@ JNIEXPORT jboolean JNICALL Java_sun_net_ExtendedOptionsImpl_keepAliveOptionsSupp
  */
 JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveProbes
 (JNIEnv *env, jobject unused, jobject fileDesc, jint optval) {
-    jint rv = setsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPCNT, (char*) &optval, sizeof(optval));
+    int fd = getFD(env, fileDesc);
+    jint rv = setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, (char*) &optval, sizeof(optval));
     handleError(env, rv, "set option TCP_KEEPCNT failed");
 }
 
@@ -147,7 +177,8 @@ JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveProbes
  */
 JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveTime
 (JNIEnv *env, jobject unused, jobject fileDesc, jint optval) {
-    jint rv = setsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPIDLE, (char*) &optval, sizeof(optval));
+    int fd = getFD(env, fileDesc);
+    jint rv = setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, (char*) &optval, sizeof(optval));
     handleError(env, rv, "set option TCP_KEEPIDLE failed");
 }
 
@@ -158,7 +189,8 @@ JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveTime
  */
 JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveIntvl
 (JNIEnv *env, jobject unused, jobject fileDesc, jint optval) {
-    jint rv = setsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPINTVL, (char*) &optval, sizeof(optval));
+    int fd = getFD(env, fileDesc);
+    jint rv = setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, (char*) &optval, sizeof(optval));
     handleError(env, rv, "set option TCP_KEEPINTVL failed");
 }
 
@@ -169,9 +201,10 @@ JNIEXPORT void JNICALL Java_sun_net_ExtendedOptionsImpl_setTcpKeepAliveIntvl
  */
 JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveProbes
 (JNIEnv *env, jobject unused, jobject fileDesc) {
+    int fd = getFD(env, fileDesc);
     jint optval, rv;
     socklen_t sz = sizeof(optval);
-    rv = getsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPCNT, (char*) &optval, &sz);
+    rv = getsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, (char*) &optval, &sz);
     handleError(env, rv, "get option TCP_KEEPCNT failed");
     return optval;
 }
@@ -183,9 +216,10 @@ JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveProbes
  */
 JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveTime
 (JNIEnv *env, jobject unused, jobject fileDesc) {
+    int fd = getFD(env, fileDesc);
     jint optval, rv;
     socklen_t sz = sizeof(optval);
-    rv = getsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPIDLE, (char*) &optval, &sz);
+    rv = getsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, (char*) &optval, &sz);
     handleError(env, rv, "get option TCP_KEEPIDLE failed");
     return optval;
 }
@@ -197,9 +231,10 @@ JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveTime
  */
 JNIEXPORT jint JNICALL Java_sun_net_ExtendedOptionsImpl_getTcpKeepAliveIntvl
 (JNIEnv *env, jobject unused, jobject fileDesc) {
+    int fd = getFD(env, fileDesc);
     jint optval, rv;
     socklen_t sz = sizeof(optval);
-    rv = getsockopt(fileDesc, IPPROTO_TCP, TCP_KEEPINTVL, (char*) &optval, &sz);
+    rv = getsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, (char*) &optval, &sz);
     handleError(env, rv, "get option TCP_KEEPINTVL failed");
     return optval;
 }
